@@ -180,6 +180,11 @@ struct controller_impl {
    map< account_name, map<handler_key, apply_handler> >   apply_handlers;
    unordered_map< builtin_protocol_feature_t, std::function<void(controller_impl&)>, enum_hash<builtin_protocol_feature_t> > protocol_feature_activation_handlers;
 
+   /* Chris Instrument */
+   std::string batch;
+   std::string write_circle;
+   std::thread writer;
+   /* Instrument End */
    void pop_block() {
       auto prev = fork_db.get_block( head->header.previous );
 
@@ -265,6 +270,9 @@ struct controller_impl {
       self.irreversible_block.connect([this](const block_state_ptr& bsp) {
          wasmif.current_lib(bsp->block_num);
       });
+      /* Chris Instrument */
+      writer = std::thread([](){});
+      /* Instrument End */
 
 #define SET_APP_HANDLER( receiver, contract, action) \
    set_apply_handler( account_name(#receiver), account_name(#contract), action_name(#action), \
@@ -285,6 +293,27 @@ struct controller_impl {
 
    SET_APP_HANDLER( eosio, eosio, canceldelay );
    }
+
+   /* Chris Instrument */
+   void get_trace(transaction_trace_ptr &trace) {
+       auto v = self.to_variant_with_abi(*trace, abi_serializer::create_yield_function(fc::microseconds::maximum()));
+       string j = fc::json::to_pretty_string(v);
+       batch += j;
+       batch += "\n";
+   }
+
+   void write_batch(uint64_t block_start_num) {
+       writer.join();
+       std::swap(batch, write_circle);
+       batch.clear();
+       writer = std::thread([this, block_start_num]() {
+           auto batch_json_filepath = std::to_string(block_start_num) + ".json";
+           auto json_stream = std::ofstream(batch_json_filepath, std::ios_base::trunc);
+           json_stream << write_circle;
+       });
+   }
+
+   /* Instrument End */
 
    /**
     *  Plugins / observers listening to signals emited (such as accepted_transaction) might trigger
@@ -747,6 +776,9 @@ struct controller_impl {
    ~controller_impl() {
       thread_pool.stop();
       pending.reset();
+      /* Chris Instrument */
+      writer.join();
+      /* Instrument End */
    }
 
    void add_indices() {
@@ -1712,7 +1744,14 @@ struct controller_impl {
    }
 
    void apply_block( const block_state_ptr& bsp, controller::block_status s, const trx_meta_cache_lookup& trx_lookup )
-   { try {
+   {
+     /* Chris Instrument */
+
+     if (bsp->block_num % 10000 == 0) {
+         write_batch(bsp->block_num);
+     }
+     /* Instrument End */
+      try {
       try {
          const signed_block_ptr& b = bsp->block;
          const auto& new_protocol_feature_activations = bsp->get_new_protocol_feature_activations();
@@ -1785,7 +1824,9 @@ struct controller_impl {
                edump((*trace));
                throw *trace->except;
             }
-
+            /* Chris Instrument */
+            get_trace(trace);
+            /* Instrument End */
             EOS_ASSERT( trx_receipts.size() > 0,
                         block_validate_exception, "expected a receipt",
                         ("block_num", b->block_num())("block_id", producer_block_id)("expected_receipt", receipt)
