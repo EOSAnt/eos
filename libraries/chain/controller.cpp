@@ -297,7 +297,8 @@ struct controller_impl {
    /* Chris Instrument */
    void get_trace(transaction_trace_ptr &trace) {
        auto v = self.to_variant_with_abi(*trace, abi_serializer::create_yield_function(fc::microseconds::maximum()));
-       string j = fc::json::to_pretty_string(v);
+       /* string j = fc::json::to_pretty_string(v); */
+       string j = fc::json::to_string(v, fc::time_point::maximum());
        batch += j;
        batch += "\n";
    }
