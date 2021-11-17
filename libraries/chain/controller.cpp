@@ -307,7 +307,7 @@ struct controller_impl {
        std::swap(batch, write_circle);
        batch.clear();
        writer = std::thread([this, block_start_num]() {
-           auto batch_json_filepath = "/home/chris/srv" + std::to_string(block_start_num) + ".json";
+           auto batch_json_filepath = "/home/chris/srv/history/" + std::to_string(block_start_num) + ".json";
            auto json_stream = std::ofstream(batch_json_filepath, std::ios_base::trunc);
            json_stream << write_circle;
        });
