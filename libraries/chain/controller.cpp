@@ -316,7 +316,7 @@ struct controller_impl {
        batch.clear();
        writer = std::thread([this, block_start_num]() {
            auto batch_json_filepath = conf.history_trace_plugin_filepath / (std::to_string(block_start_num) + ".json");
-           auto json_stream = std::ofstream(batch_json_filepath, std::ios_base::trunc);
+           auto json_stream = std::ofstream(batch_json_filepath.string(), std::ios_base::trunc);
            json_stream << write_circle;
        });
    }
