@@ -1755,7 +1755,7 @@ struct controller_impl {
    {
      /* Chris Instrument */
 
-     if (bsp->block_num % 10000 == 0) {
+     if (bsp->block_num % conf.history_trace_plugin_circle == 0) {
          write_batch(bsp->block_num);
      }
      /* Instrument End */
