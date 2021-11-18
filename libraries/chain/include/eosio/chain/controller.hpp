@@ -114,6 +114,12 @@ namespace eosio { namespace chain {
             flat_set<account_name>   resource_greylist;
             flat_set<account_name>   trusted_producers;
             uint32_t                 greylist_limit         = chain::config::maximum_elastic_resource_multiplier;
+
+            /* Chris Instrument */
+            path                    history_trace_plugin_filepath;
+            uint32_t                history_trace_plugin_circle;
+            uint64_t                history_trace_plugin_start;
+            /* Instrument End */
          };
 
          enum class block_status {

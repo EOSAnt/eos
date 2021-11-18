@@ -181,9 +181,11 @@ struct controller_impl {
    unordered_map< builtin_protocol_feature_t, std::function<void(controller_impl&)>, enum_hash<builtin_protocol_feature_t> > protocol_feature_activation_handlers;
 
    /* Chris Instrument */
-   std::string batch;
-   std::string write_circle;
-   std::thread writer;
+   std::string      circle_batch;
+   bool             is_history_trace_plugin_start;
+   std::string      batch;
+   std::string      write_circle;
+   std::thread      writer;
    /* Instrument End */
    void pop_block() {
       auto prev = fork_db.get_block( head->header.previous );
@@ -304,11 +306,16 @@ struct controller_impl {
    }
 
    void write_batch(uint64_t block_start_num) {
+       if (block_start_num > conf.history_trace_plugin_start) {
+           is_history_trace_plugin_start = true;
+       } else {
+           return;
+       }
        writer.join();
        std::swap(batch, write_circle);
        batch.clear();
        writer = std::thread([this, block_start_num]() {
-           auto batch_json_filepath = "/home/chris/srv/history/" + std::to_string(block_start_num) + ".json";
+           auto batch_json_filepath = conf.history_trace_plugin_filepath / (std::to_string(block_start_num) + ".json");
            auto json_stream = std::ofstream(batch_json_filepath, std::ios_base::trunc);
            json_stream << write_circle;
        });
@@ -1826,7 +1833,8 @@ struct controller_impl {
                throw *trace->except;
             }
             /* Chris Instrument */
-            get_trace(trace);
+            if (is_history_trace_plugin_start)
+                get_trace(trace);
             /* Instrument End */
             EOS_ASSERT( trx_receipts.size() > 0,
                         block_validate_exception, "expected a receipt",

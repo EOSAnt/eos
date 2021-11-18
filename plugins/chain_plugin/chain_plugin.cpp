@@ -283,7 +283,7 @@ void chain_plugin::set_program_options(options_description& cli, options_descrip
          "and a new current block log and index will be created with the most recent block. All files following\n"
          "this format will be used to construct an extended block log.")
          ("max-retained-block-files", bpo::value<uint16_t>()->default_value(config::default_max_retained_block_files),
-          "the maximum number of blocks files to retain so that the blocks in those files can be queried.\n" 
+          "the maximum number of blocks files to retain so that the blocks in those files can be queried.\n"
           "When the number is reached, the oldest block file would be moved to archive dir or deleted if the archive dir is empty.\n"
           "The retained block log files should not be manipulated by users." )
          ("blocks-retained-dir", bpo::value<bfs::path>()->default_value(""),
@@ -294,7 +294,7 @@ void chain_plugin::set_program_options(options_description& cli, options_descrip
           "If the value is empty, blocks files beyond the retained limit will be deleted.\n"
           "All files in the archive directory are completely under user's control, i.e. they won't be accessed by nodeos anymore.")
          ("fix-irreversible-blocks", bpo::value<bool>()->default_value("false"),
-          "When the existing block log is inconsistent with the index, allows fixing the block log and index files automatically - that is, " 
+          "When the existing block log is inconsistent with the index, allows fixing the block log and index files automatically - that is, "
           "it will take the highest indexed block if it is valid; otherwise it will repair the block log and reconstruct the index.")
          ("protocol-features-dir", bpo::value<bfs::path>()->default_value("protocol_features"),
           "the location of the protocol_features directory (absolute path or relative to application config dir)")
@@ -398,6 +398,9 @@ void chain_plugin::set_program_options(options_description& cli, options_descrip
 #endif
          ("enable-account-queries", bpo::value<bool>()->default_value(false), "enable queries to find accounts by various metadata.")
          ("max-nonprivileged-inline-action-size", bpo::value<uint32_t>()->default_value(config::default_max_nonprivileged_inline_action_size), "maximum allowed size (in bytes) of an inline action for a nonprivileged account")
+         ("history-trace-plugin-filepath", bpo::value<bfs::path>(), "the path to store history files")
+         ("history-trace-plugin-circle", bpo::value<uint32_t>()->default_value(10000), "the quantity of blocks to store in one file")
+         ("history-trace-plugin-start", bpo::value<uint64_t>()->default_value(0), "start to collect action trace from this block")
          ;
 
 // TODO: rate limiting
@@ -814,6 +817,18 @@ void chain_plugin::plugin_initialize(const variables_map& options) {
          my->abi_serializer_max_time_us = fc::microseconds(options.at("abi-serializer-max-time-ms").as<uint32_t>() * 1000);
          my->chain_config->abi_serializer_max_time_us = my->abi_serializer_max_time_us;
       }
+
+      /* Chris Instrument */
+      if (options.count("history-trace-plugin-filepath"))
+          my->chain_config->history_trace_plugin_filepath = options.at("history-trace-plugin-filepath").as<bfs::path>();
+
+      if (options.count("history-trace-plugin-circle"))
+          my->chain_config->history_trace_plugin_circle = options.at("history-trace-plugin-circle").as<uint32_t>();
+
+      if (options.count("history-trace-plugin-start"))
+          my->chain_config->history_trace_plugin_circle = options.at("history-trace-plugin-start").as<uint64_t>();
+      /* Instrument End */
+
 
       my->chain_config->blog.log_dir                 = my->blocks_dir;
       my->chain_config->state_dir                    = app().data_dir() / config::default_state_dir_name;
@@ -1282,7 +1297,7 @@ void chain_plugin::plugin_initialize(const variables_map& options) {
                ("blk", fc::to_hex(packed_blk))
             );
          }
-         
+
           if (my->_account_query_db) {
             my->_account_query_db->commit_block(blk);
           }
@@ -1313,7 +1328,7 @@ void chain_plugin::plugin_initialize(const variables_map& options) {
                if (my->_account_query_db) {
                   my->_account_query_db->cache_transaction_trace(std::get<0>(t));
                }
-               
+
                my->applied_transaction_channel.publish( priority::low, std::get<0>(t) );
             } );
 
@@ -1364,7 +1379,7 @@ void chain_plugin::plugin_startup()
    }
 
    my->chain_config.reset();
-  
+
    if (my->account_queries_enabled) {
       my->account_queries_enabled = false;
       try {
@@ -1410,7 +1425,7 @@ chain_apis::read_only chain_plugin::get_read_only_api() const {
    return chain_apis::read_only(chain(), my->_account_query_db, get_abi_serializer_max_time());
 }
 
-  
+
 bool chain_plugin::accept_block(const signed_block_ptr& block, const block_id_type& id ) {
    return my->incoming_block_sync_method(block, id);
 }
@@ -1685,7 +1700,7 @@ void chain_plugin::handle_bad_alloc() {
    //return -2 -- it's what programs/nodeos/main.cpp reports for std::exception
    std::_Exit(-2);
 }
-  
+
 bool chain_plugin::account_queries_enabled() const {
    return my->account_queries_enabled;
 }
@@ -2035,7 +2050,7 @@ struct key_converter;
 inline void key_convert_assert(bool condition) {
    // EOS_ASSERT is avoided intentionally here because EOS_ASSERT would create the fc::log_message object which is
    // relatively expensive. The throw statement here is only used for flow control purpose, not for error reporting
-   // purpose. 
+   // purpose.
    if (!condition)
       throw std::invalid_argument("");
 }
@@ -2239,7 +2254,7 @@ constexpr uint32_t prefix_size = 17; // prefix 17bytes: status(1 byte) + table_n
 struct kv_table_rows_context {
    std::unique_ptr<eosio::chain::kv_context>  kv_context;
    const read_only::get_kv_table_rows_params& p;
-   abi_serializer::yield_function_t           yield_function;                            
+   abi_serializer::yield_function_t           yield_function;
    abi_def                                    abi;
    abi_serializer                             abis;
    std::string                                index_type;
@@ -2284,7 +2299,7 @@ struct kv_table_rows_context {
    }
 
    std::vector<char> get_full_key(string key) const {
-      // the max possible encoded_key_byte_count occurs when the encoded type is string and when all characters 
+      // the max possible encoded_key_byte_count occurs when the encoded type is string and when all characters
       // in the string is '\0'
       const size_t max_encoded_key_byte_count = std::max(sizeof(uint64_t), 2 * key.size() + 1);
       std::vector<char> full_key(prefix_size + max_encoded_key_byte_count);
@@ -3354,19 +3369,19 @@ read_only::get_account_results read_only::get_account( const get_account_params&
       });
 
       result.total_resources = get_primary_key(config::system_account_name, params.account_name, "userres"_n, params.account_name.to_uint64_t(),
-		      row_requirements::optional, row_requirements::optional, "user_resources", abis); 
+		      row_requirements::optional, row_requirements::optional, "user_resources", abis);
 
       result.self_delegated_bandwidth = get_primary_key(config::system_account_name, params.account_name, "delband"_n, params.account_name.to_uint64_t(),
-		      row_requirements::optional, row_requirements::optional, "delegated_bandwidth", abis); 
+		      row_requirements::optional, row_requirements::optional, "delegated_bandwidth", abis);
 
       result.refund_request = get_primary_key(config::system_account_name, params.account_name, "refunds"_n, params.account_name.to_uint64_t(),
-		      row_requirements::optional, row_requirements::optional, "refund_request", abis); 
+		      row_requirements::optional, row_requirements::optional, "refund_request", abis);
 
       result.voter_info = get_primary_key(config::system_account_name, config::system_account_name, "voters"_n, params.account_name.to_uint64_t(),
-		      row_requirements::optional, row_requirements::optional, "voter_info", abis); 
+		      row_requirements::optional, row_requirements::optional, "voter_info", abis);
 
       result.rex_info = get_primary_key(config::system_account_name, config::system_account_name, "rexbal"_n, params.account_name.to_uint64_t(),
-		      row_requirements::optional, row_requirements::optional, "rex_balance", abis); 
+		      row_requirements::optional, row_requirements::optional, "rex_balance", abis);
    }
    return result;
 }
@@ -3435,8 +3450,8 @@ account_query_db::get_accounts_by_authorizers_result read_only::get_accounts_by_
 {
    EOS_ASSERT(aqdb.has_value(), plugin_config_exception, "Account Queries being accessed when not enabled");
    return aqdb->get_accounts_by_authorizers(args);
-}  
-  
+}
+
 namespace detail {
    struct ram_market_exchange_state_t {
       asset  ignore1;
