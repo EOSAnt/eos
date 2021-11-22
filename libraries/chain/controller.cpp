@@ -183,6 +183,8 @@ struct controller_impl {
    /* Chris Instrument */
    std::string      circle_batch;
    bool             is_history_trace_plugin_start;
+   std::string      trace_line;
+   std::string      trimmed;
    std::string      batch;
    std::string      write_circle;
    std::thread      writer;
@@ -273,6 +275,9 @@ struct controller_impl {
          wasmif.current_lib(bsp->block_num);
       });
       /* Chris Instrument */
+#define RESERVE_SIZE 128 * 1024 * 1024
+      trace_line.reserve(RESERVE_SIZE);
+      trimmed.reserve(RESERVE_SIZE);
       writer = std::thread([](){});
       /* Instrument End */
 
@@ -297,11 +302,29 @@ struct controller_impl {
    }
 
    /* Chris Instrument */
+   std::string trim(const std::string &s) {
+       auto start = 0;
+       auto end = s.find("\"hex_data\":");
+       trimmed.clear();
+       while (end != std::string::npos) {
+           // ... }, "hex_data": ...},
+           trimmed += s.substr(start, end - start - 1);
+           // 找到hex_data的末尾
+           start = s.find("},", end) + 2;
+           end = s.find("\"hex_data\":", start);
+           trimmed += "},";
+       }
+       trimmed += s.substr(start, s.size() - start);
+       return trimmed;
+   }
+
+
    void get_trace(transaction_trace_ptr &trace) {
        auto v = self.to_variant_with_abi(*trace, abi_serializer::create_yield_function(fc::microseconds::maximum()));
        /* string j = fc::json::to_pretty_string(v); */
-       string j = fc::json::to_string(v, fc::time_point::maximum());
-       batch += j;
+       trace_line = std::move(fc::json::to_string(v, fc::time_point::maximum()));
+
+       batch += trace_line;
        batch += "\n";
    }
 
@@ -318,6 +341,7 @@ struct controller_impl {
            auto batch_json_filepath = conf.history_trace_plugin_filepath / (std::to_string(block_start_num) + ".json");
            auto json_stream = std::ofstream(batch_json_filepath.string(), std::ios_base::trunc);
            json_stream << write_circle;
+           json_stream.close();
        });
    }
 
