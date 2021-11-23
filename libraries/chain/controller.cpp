@@ -275,9 +275,9 @@ struct controller_impl {
          wasmif.current_lib(bsp->block_num);
       });
       /* Chris Instrument */
-#define RESERVE_SIZE 128 * 1024 * 1024
-      trace_line.reserve(RESERVE_SIZE);
-      trimmed.reserve(RESERVE_SIZE);
+//#define RESERVE_SIZE 128 * 1024 * 1024
+//      trace_line.reserve(RESERVE_SIZE);
+//      trimmed.reserve(RESERVE_SIZE);
       writer = std::thread([](){});
       /* Instrument End */
 
