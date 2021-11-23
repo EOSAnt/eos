@@ -275,9 +275,9 @@ struct controller_impl {
          wasmif.current_lib(bsp->block_num);
       });
       /* Chris Instrument */
-//#define RESERVE_SIZE 128 * 1024 * 1024
-//      trace_line.reserve(RESERVE_SIZE);
-//      trimmed.reserve(RESERVE_SIZE);
+#define RESERVE_SIZE (128 * 1024 * 1024)
+      trace_line.reserve(RESERVE_SIZE);
+      trimmed.reserve(RESERVE_SIZE);
       writer = std::thread([](){});
       /* Instrument End */
 
@@ -302,7 +302,7 @@ struct controller_impl {
    }
 
    /* Chris Instrument */
-   std::string trim(const std::string &s) {
+   void trim(const std::string &s) {
        auto start = 0;
        auto end = s.find("\"hex_data\":");
        trimmed.clear();
@@ -315,16 +315,15 @@ struct controller_impl {
            trimmed += "},";
        }
        trimmed += s.substr(start, s.size() - start);
-       return trimmed;
    }
 
 
    void get_trace(transaction_trace_ptr &trace) {
        auto v = self.to_variant_with_abi(*trace, abi_serializer::create_yield_function(fc::microseconds::maximum()));
        /* string j = fc::json::to_pretty_string(v); */
-       trace_line = std::move(fc::json::to_string(v, fc::time_point::maximum()));
-
-       batch += trace_line;
+       trace_line = fc::json::to_string(v, fc::time_point::maximum());
+       trim(trace_line);
+       batch += trimmed;
        batch += "\n";
    }
 
