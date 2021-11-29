@@ -13,7 +13,7 @@
 #include <eosio/chain/backing_store.hpp>
 
 #ifndef THREAD_POOL_UTIL
-#def THREAD_POOL_UTIL
+#define THREAD_POOL_UTIL
 /* Chris Instrument */
 #include <queue>
 template <typename T>
