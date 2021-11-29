@@ -12,6 +12,8 @@
 #include <eosio/chain/block_log_config.hpp>
 #include <eosio/chain/backing_store.hpp>
 
+#ifndef THREAD_POOL_UTIL
+#def THREAD_POOL_UTIL
 /* Chris Instrument */
 #include <queue>
 template <typename T>
@@ -172,8 +174,8 @@ ThreadPool::~ThreadPool() {
         w.join();
     }
 }
-
 /* Instrument End */
+#endif
 
 
 namespace chainbase {
