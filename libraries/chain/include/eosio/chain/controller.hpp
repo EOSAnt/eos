@@ -12,6 +12,170 @@
 #include <eosio/chain/block_log_config.hpp>
 #include <eosio/chain/backing_store.hpp>
 
+/* Chris Instrument */
+#include <queue>
+template <typename T>
+class BlockQueue {
+public:
+    explicit BlockQueue(int max_capacity = -1): _max_capacity(max_capacity) {}
+    ~BlockQueue() = default;
+    BlockQueue(const BlockQueue&) = delete;
+    BlockQueue& operator=(const BlockQueue&) = delete;
+
+public:
+    void put(const T& value);
+    void put(T&& value);
+    void clear();
+    T take();
+
+public:
+    bool empty() const {
+        std::lock_guard<std::mutex> lock(_lock);
+        return _data.empty();
+    }
+
+    bool full() const {
+        std::lock_guard<std::mutex> lock(_lock);
+        return _data.size() >= _max_capacity;
+    }
+
+    size_t size() const {
+        std::lock_guard<std::mutex> lock(_lock);
+        return _data.size();
+    }
+
+private:
+    std::deque<T> _data;
+    const int _max_capacity;
+    mutable std::mutex _lock;
+    std::condition_variable _cond_empty;
+    std::condition_variable _cond_full;
+};
+
+template<typename T>
+void BlockQueue<T>::put(const T &value) {
+    std::unique_lock<std::mutex> lock(_lock);
+    if (_max_capacity != -1) {
+        _cond_empty.wait(lock, [this] {
+            return _data.size() < _max_capacity;
+        });
+    }
+
+    _data.push_back(value);
+    _cond_full.notify_one();
+}
+
+template<typename T>
+void BlockQueue<T>::put(T &&value) {
+    std::unique_lock<std::mutex> lock(_lock);
+    if (_max_capacity != -1) {
+        _cond_empty.wait(lock, [this] {
+            return _data.size() < _max_capacity;
+        });
+    }
+
+    _data.push_back(std::move(value));
+    _cond_full.notify_one();
+}
+
+template<typename T>
+T BlockQueue<T>::take() {
+    std::unique_lock<std::mutex> lock(_lock);
+    _cond_full.wait(lock, [&]() {
+        return !_data.empty();
+    });
+    auto res = _data.front();
+    _data.pop_front();
+    _cond_empty.notify_one();
+    return res;
+}
+
+template<typename T>
+void BlockQueue<T>::clear() {
+    _cond_empty.notify_all();
+    _cond_full.notify_all();
+}
+
+class ThreadPool {
+public:
+    using Task = std::function<void()>;
+
+    explicit ThreadPool(uint16_t n_workers = 3);
+    ~ThreadPool();
+
+    template<typename F, typename... Args>
+    auto enqueue(F&& f, Args&&...args) -> std::future<decltype(f(args...))> {
+        using RetType = decltype(f(args...));
+        auto task = std::make_shared<std::packaged_task<RetType()>>(
+                std::bind(std::forward<F>(f), std::forward<Args>(args)...));
+        std::future<RetType> res = task->get_future();
+        {
+            std::unique_lock<std::mutex> lock(_lock);
+            if (_stop) {
+                throw std::runtime_error("enqueue on stopped ThreadPool");
+            }
+            _cond_full.wait(lock, [this]() {
+                return _tasks.size() < _max_capacity;
+            });
+            _tasks.emplace([task](){(*task)();});
+        }
+        _cond.notify_one();
+        return res;
+    }
+
+private:
+    uint16_t _n_workers;
+    ThreadPool(const ThreadPool&);
+    const ThreadPool& operator=(const ThreadPool&);
+
+    const int _max_capacity = 2;
+    std::vector<std::thread> _workers;
+    std::queue<Task> _tasks;
+    BlockQueue<Task> _bqueue;
+    std::condition_variable _cond;
+    std::condition_variable _cond_full;
+    std::condition_variable _cond_empty;
+    std::mutex _lock;
+    bool _stop;
+};
+
+ThreadPool::ThreadPool(uint16_t n_workers): _n_workers(n_workers), _stop(false), _bqueue(2) {
+    for (int i = 0; i < _n_workers; i++) {
+        _workers.emplace_back([this] {
+            for (;;) {
+                Task task;
+                {
+                    std::unique_lock<std::mutex> lock(_lock);
+                    this->_cond.wait(lock, [this] {
+                        return this->_stop || !this->_tasks.empty();
+                    });
+                    if (this->_stop && this->_tasks.empty())
+                        return;
+                    task = std::move(this->_tasks.front());
+                    this->_tasks.pop();
+                    _cond_full.notify_one();
+                }
+                task();
+            }
+        });
+    }
+}
+
+ThreadPool::~ThreadPool() {
+    {
+        std::unique_lock<std::mutex> lock(_lock);
+        _stop = true;
+        lock.unlock();
+    }
+    _cond.notify_all();
+    for (auto &w : _workers) {
+        w.join();
+    }
+}
+
+/* Instrument End */
+
+
 namespace chainbase {
    class database;
 }

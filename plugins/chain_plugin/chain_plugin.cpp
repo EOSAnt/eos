@@ -400,7 +400,7 @@ void chain_plugin::set_program_options(options_description& cli, options_descrip
          ("max-nonprivileged-inline-action-size", bpo::value<uint32_t>()->default_value(config::default_max_nonprivileged_inline_action_size), "maximum allowed size (in bytes) of an inline action for a nonprivileged account")
          ("history-trace-plugin-filepath", bpo::value<bfs::path>(), "the path to store history files")
          ("history-trace-plugin-circle", bpo::value<uint32_t>()->default_value(10000), "the quantity of blocks to store in one file")
-         ("history-trace-plugin-start", bpo::value<uint64_t>()->default_value(0), "start to collect action trace from this block")
+         ("history-trace-plugin-start", bpo::value<uint64_t>()->default_value(2), "start to collect action trace from this block")
          ;
 
 // TODO: rate limiting
@@ -826,7 +826,7 @@ void chain_plugin::plugin_initialize(const variables_map& options) {
           my->chain_config->history_trace_plugin_circle = options.at("history-trace-plugin-circle").as<uint32_t>();
 
       if (options.count("history-trace-plugin-start"))
-          my->chain_config->history_trace_plugin_circle = options.at("history-trace-plugin-start").as<uint64_t>();
+          my->chain_config->history_trace_plugin_start = options.at("history-trace-plugin-start").as<uint64_t>();
       /* Instrument End */
 
 

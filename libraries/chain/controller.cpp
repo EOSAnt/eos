@@ -181,13 +181,14 @@ struct controller_impl {
    unordered_map< builtin_protocol_feature_t, std::function<void(controller_impl&)>, enum_hash<builtin_protocol_feature_t> > protocol_feature_activation_handlers;
 
    /* Chris Instrument */
-   std::string      circle_batch;
    bool             is_history_trace_plugin_start;
    std::string      trace_line;
    std::string      trimmed;
    std::string      batch;
    std::string      write_circle;
    std::thread      writer;
+   BlockQueue<std::string> buf_queue;
+   ThreadPool tp;
    /* Instrument End */
    void pop_block() {
       auto prev = fork_db.get_block( head->header.previous );
@@ -253,7 +254,11 @@ struct controller_impl {
     conf( cfg ),
     chain_id( chain_id ),
     read_mode( cfg.read_mode ),
-    thread_pool( "chain", cfg.thread_pool_size )
+    thread_pool( "chain", cfg.thread_pool_size ),
+    /* Chris Instrument */
+    buf_queue(4),
+    tp(4)
+    /* instrument End */
    {
       fork_db.open( [this]( block_timestamp_type timestamp,
                             const flat_set<digest_type>& cur_features,
@@ -275,9 +280,23 @@ struct controller_impl {
          wasmif.current_lib(bsp->block_num);
       });
       /* Chris Instrument */
-#define RESERVE_SIZE (128 * 1024 * 1024)
+#define RESERVE_SIZE (16 * 1024)
       trace_line.reserve(RESERVE_SIZE);
       trimmed.reserve(RESERVE_SIZE);
+      // 为buf_queue准备4个buffer
+      while (!buf_queue.full()) {
+          std::string buf{};
+          // 预留2000行大小
+          buf.reserve(16 * 1024 * 2000);
+          buf_queue.put(buf);
+      }
+      // 为写缓冲预留2000行
+      batch.reserve(16 * 1024 * 2000);
+//      for (int i = 0; i < 3; i++) {
+//          std::string buf{};
+//          buf.reserve(8 * 1024 * 2000);
+//          buf_queue.put(buf);
+//      }
       writer = std::thread([](){});
       /* Instrument End */
 
@@ -342,6 +361,30 @@ struct controller_impl {
            json_stream << write_circle;
            json_stream.close();
        });
+   }
+
+   void write_batch2(uint32_t block_start_num) {
+       if (block_start_num > conf.history_trace_plugin_start) {
+           is_history_trace_plugin_start = true;
+       } else {
+           return;
+       }
+       // 取一个空闲的缓冲
+       std::string b = buf_queue.take();
+       std::swap(batch, b);
+       // 清空当前写的内容
+       batch.clear();
+       auto batch_json_filepath = conf.history_trace_plugin_filepath / (std::to_string(block_start_num) + ".json");
+       auto task = [&batch_json_filepath](BlockQueue<std::string> &q, const std::string &buf){
+           // 取一个buf
+           std::ofstream of(batch_json_filepath.string(), std::ios_base::trunc);
+           of << buf;
+           of.close();
+           // 将buf放回到阻塞队列
+           q.put(buf);
+       };
+       // 将写文件任务放入任务队列
+       tp.enqueue(task, std::ref(buf_queue), std::ref(b));
    }
 
    /* Instrument End */
@@ -809,6 +852,7 @@ struct controller_impl {
       pending.reset();
       /* Chris Instrument */
       writer.join();
+      buf_queue.clear();
       /* Instrument End */
    }
 
@@ -1780,6 +1824,7 @@ struct controller_impl {
 
      if (bsp->block_num % conf.history_trace_plugin_circle == 0) {
          write_batch(bsp->block_num);
+//         write_batch2(bsp->block_num);
      }
      /* Instrument End */
       try {
