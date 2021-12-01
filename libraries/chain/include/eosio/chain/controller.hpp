@@ -127,8 +127,8 @@ public:
 
 private:
     uint16_t _n_workers;
-    ThreadPool(const ThreadPool&);
-    const ThreadPool& operator=(const ThreadPool&);
+    ThreadPool(const ThreadPool&) = delete;
+    const ThreadPool& operator=(const ThreadPool&) = delete;
 
     const int _max_capacity = 2;
     std::vector<std::thread> _workers;
@@ -140,42 +140,8 @@ private:
     std::mutex _lock;
     bool _stop;
 };
-
-ThreadPool::ThreadPool(uint16_t n_workers): _n_workers(n_workers), _stop(false), _bqueue(2) {
-    for (int i = 0; i < _n_workers; i++) {
-        _workers.emplace_back([this] {
-            for (;;) {
-                Task task;
-                {
-                    std::unique_lock<std::mutex> lock(_lock);
-                    this->_cond.wait(lock, [this] {
-                        return this->_stop || !this->_tasks.empty();
-                    });
-                    if (this->_stop && this->_tasks.empty())
-                        return;
-                    task = std::move(this->_tasks.front());
-                    this->_tasks.pop();
-                    _cond_full.notify_one();
-                }
-                task();
-            }
-        });
-    }
-}
-
-ThreadPool::~ThreadPool() {
-    {
-        std::unique_lock<std::mutex> lock(_lock);
-        _stop = true;
-        lock.unlock();
-    }
-    _cond.notify_all();
-    for (auto &w : _workers) {
-        w.join();
-    }
-}
-/* Instrument End */
 #endif
+/* Instrument End */
 
 
 namespace chainbase {
